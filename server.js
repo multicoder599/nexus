@@ -144,7 +144,77 @@ app.post('/api/merchant/apply', protect, async (req, res) => {
         res.status(500).send('Server error');
     }
 });
+// --- ADMIN MIDDLEWARE ---
+const adminProtect = (req, res, next) => {
+    const token = req.header('x-admin-token');
+    if (!token) return res.status(401).json({ msg: 'No token, authorization denied' });
 
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded.role !== 'admin') throw new Error();
+        next();
+    } catch (e) {
+        res.status(400).json({ msg: 'Token is not valid' });
+    }
+};
+
+// --- ADMIN ROUTES ---
+
+// 1. Admin Login (Checks the hidden password)
+app.post('/api/admin/login', (req, res) => {
+    const { password } = req.body;
+    
+    // Compare against the secret password stored in your .env file
+    if (password === process.env.ADMIN_PASSWORD) {
+        const adminToken = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '12h' });
+        res.json({ token: adminToken });
+    } else {
+        res.status(401).json({ msg: 'Access Denied: Invalid Admin Credentials' });
+    }
+});
+
+// 2. Get Pending KYC Users
+app.get('/api/admin/kyc-pending', adminProtect, async (req, res) => {
+    try {
+        // Fetch all users whose KYC status is 'pending'
+        const users = await User.find({ kycStatus: 'pending' }).select('-password');
+        res.json(users);
+    } catch (err) {
+        res.status(500).send('Server error');
+    }
+});
+
+// 3. Approve or Reject KYC
+app.post('/api/admin/kyc-action', adminProtect, async (req, res) => {
+    const { userId, action } = req.body; // action will be 'approve' or 'reject'
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ msg: 'User not found' });
+
+        if (action === 'approve') {
+            user.kycStatus = 'verified';
+        } else if (action === 'reject') {
+            user.kycStatus = 'unverified';
+        }
+
+        await user.save();
+        res.json({ msg: `User KYC ${action}d successfully` });
+    } catch (err) {
+        res.status(500).send('Server error');
+    }
+});
+
+// 4. (Optional) Route for normal users to submit KYC and become 'pending'
+app.post('/api/user/submit-kyc', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        user.kycStatus = 'pending';
+        await user.save();
+        res.json({ msg: 'KYC Submitted successfully' });
+    } catch (err) {
+        res.status(500).send('Server error');
+    }
+});
 // --- SERVER START ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Nexus Backend running on port ${PORT}`));
