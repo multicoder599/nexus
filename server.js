@@ -204,7 +204,41 @@ app.post('/api/finance/deposit', protect, async (req, res) => {
         res.status(500).send('Server error');
     }
 });
+// 8. Request a Withdrawal (NEW)
+app.post('/api/finance/withdraw', protect, async (req, res) => {
+    const { amount, method } = req.body;
+    try {
+        if (!amount || amount <= 0) {
+            return res.status(400).json({ msg: 'Invalid amount' });
+        }
 
+        const user = await User.findById(req.user.id);
+        
+        // Check if they have enough balance
+        if (user.balance < amount) {
+            return res.status(400).json({ msg: 'Insufficient funds' });
+        }
+
+        // Deduct the balance immediately
+        user.balance -= amount;
+        await user.save();
+
+        // Create a transaction record
+        const transaction = new Transaction({
+            userId: req.user.id,
+            type: 'withdrawal',
+            method: method || 'Crypto',
+            amount: amount,
+            status: 'pending' // Admin can review this later
+        });
+
+        await transaction.save();
+        res.json({ msg: 'Withdrawal requested successfully', balance: user.balance, transactionId: transaction._id });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server error');
+    }
+});
 // ==========================================
 // --- ADMIN ROUTES ---
 // ==========================================
